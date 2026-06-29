@@ -209,14 +209,56 @@ struct ContentView: View {
             }
         }
         .background {
-            VisualEffectView(material: .popover, blendingMode: .behindWindow)
-                .clipShape(RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.18 : 0.42), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(colorScheme == .dark ? 0.34 : 0.16), radius: 28, x: 0, y: 16)
-                .ignoresSafeArea()
+            ZStack {
+                // 1. Base Real-time Environmental Refraction (Simulated with saturation boost)
+                VisualEffectView(material: .sidebar, blendingMode: .behindWindow)
+                    .clipShape(RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
+                    .saturation(1.5) // Saturation boost for Liquid Glass
+
+                // 2. Adaptive physics-based meta-substance (Fluid motion)
+                LiquidBlobBackground()
+                    .clipShape(RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
+                    .opacity(0.8)
+                    .blendMode(colorScheme == .dark ? .plusLighter : .multiply)
+
+                // 3. Thick Glass Frosting with Depth
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .opacity(colorScheme == .dark ? 0.85 : 0.65)
+                    .clipShape(RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
+
+                // 4. Inner Bevel & Refraction (Thickness)
+                RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(colorScheme == .dark ? 0.6 : 0.1),
+                                Color.clear,
+                                Color.white.opacity(colorScheme == .dark ? 0.2 : 0.5)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 2
+                    )
+
+                // 5. Specular Highlights (Surface Reflection)
+                RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(colorScheme == .dark ? 0.9 : 0.95),
+                                Color.white.opacity(colorScheme == .dark ? 0.1 : 0.2),
+                                Color.white.opacity(colorScheme == .dark ? 0.3 : 0.6)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            }
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.6 : 0.25), radius: 30, x: 0, y: 20)
+            .ignoresSafeArea()
         }
     }
 
@@ -398,14 +440,43 @@ struct AppIconView: View {
         .padding(.horizontal, 3)
         .frame(width: 64, height: 82, alignment: .top)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isHovering ? Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06) : Color.clear)
-                .background {
-                    if isHovering {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(.regularMaterial)
-                    }
+            ZStack {
+                if isHovering {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .opacity(colorScheme == .dark ? 0.9 : 0.7)
+                    
+                    // Inner refraction
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(colorScheme == .dark ? 0.15 : 0.3),
+                                    Color.clear
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .blendMode(.overlay)
+                    
+                    // Specular Highlight
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(colorScheme == .dark ? 0.8 : 0.9),
+                                    Color.white.opacity(0.0),
+                                    Color.white.opacity(colorScheme == .dark ? 0.2 : 0.4)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
                 }
+            }
+            .shadow(color: isHovering ? .black.opacity(0.2) : .clear, radius: 8, x: 0, y: 4)
         )
         .scaleEffect(isPressed ? 0.94 : (isHovering ? 1.03 : 1.0))
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovering)
@@ -485,6 +556,63 @@ struct WindowBackgroundConfigurator: NSViewRepresentable {
         window.backgroundColor = .clear
         window.contentView?.wantsLayer = true
         window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+    }
+}
+
+struct LiquidBlobBackground: View {
+    @State private var animate = false
+    
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                // Purple/Pink blob
+                Ellipse()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.purple.opacity(0.8), Color.indigo.opacity(0.8)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: proxy.size.width * 1.2, height: proxy.size.width * 1.2)
+                    .blur(radius: 60)
+                    .offset(x: animate ? -proxy.size.width * 0.1 : proxy.size.width * 0.3,
+                            y: animate ? -proxy.size.height * 0.1 : proxy.size.height * 0.4)
+                
+                // Cyan/Blue blob
+                Ellipse()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.cyan.opacity(0.7), Color.blue.opacity(0.7)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: proxy.size.width * 1.3, height: proxy.size.width * 1.3)
+                    .blur(radius: 70)
+                    .offset(x: animate ? proxy.size.width * 0.4 : -proxy.size.width * 0.2,
+                            y: animate ? proxy.size.height * 0.4 : -proxy.size.height * 0.1)
+                
+                // Orange/Pink blob
+                Ellipse()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.pink.opacity(0.6), Color.orange.opacity(0.5)],
+                            startPoint: .bottomLeading,
+                            endPoint: .topTrailing
+                        )
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.width)
+                    .blur(radius: 50)
+                    .offset(x: animate ? proxy.size.width * 0.1 : proxy.size.width * 0.6,
+                            y: animate ? -proxy.size.height * 0.3 : proxy.size.height * 0.3)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 8.0).repeatForever(autoreverses: true)) {
+                animate = true
+            }
+        }
     }
 }
 
