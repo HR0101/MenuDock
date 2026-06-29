@@ -1,0 +1,40 @@
+#  依存パッケージ 
+node_modules/
+docs/
+
+#  環境変数・秘密情報 
+.env
+.env.*
+!.env.example
+Assets.xcassets
+
+
+
+
+#  Claude Code 関連 
+.claude
+CLAUDE.md
+
+.codex
+AGENT.md
+
+#  ログ 
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+#  一時ファイル・ダウンロード作業ディレクトリ 
+tmp/
+*.tmp
+*.zip
+
+#  OS・エディタ生成物 
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+
+
