@@ -16,13 +16,25 @@ struct ContentView: View {
     ]) private var shortcuts: [ShortcutApp]
     @Environment(\.colorScheme) private var colorScheme
 
+    private let appGridColumnCount = 4
+    private let appGridCellWidth: CGFloat = 64
+    private let appGridCellHeight: CGFloat = 82
+    private let appGridColumnSpacing: CGFloat = 10
+    private let appGridRowSpacing: CGFloat = 14
+    private let appGridHorizontalPadding: CGFloat = 16
+    private let appGridVerticalPadding: CGFloat = 18
+
     private var appGridColumns: [GridItem] {
-        Array(repeating: GridItem(.fixed(64), spacing: 10, alignment: .top), count: 4)
+        Array(
+            repeating: GridItem(.fixed(appGridCellWidth), spacing: appGridColumnSpacing, alignment: .top),
+            count: appGridColumnCount
+        )
     }
 
     private var appGridHeight: CGFloat {
-        let rowCount = max(1, (shortcuts.count + 3) / 4)
-        return min(CGFloat(rowCount) * 96 + 20, 350)
+        let rowCount = max(1, (displayedShortcuts.count + appGridColumnCount - 1) / appGridColumnCount)
+        let contentHeight = CGFloat(rowCount) * appGridCellHeight + CGFloat(max(0, rowCount - 1)) * appGridRowSpacing
+        return min(contentHeight + appGridVerticalPadding * 2, 350)
     }
 
     private var panelCornerRadius: CGFloat { 24 }
@@ -30,6 +42,7 @@ struct ContentView: View {
     @State private var isLaunchAtLoginEnabled: Bool = SMAppService.mainApp.status == .enabled
     @State private var draggingShortcut: ShortcutApp?
     @State private var orderedShortcuts: [ShortcutApp] = []
+    @State private var isDeleteMode = false
 
     private var displayedShortcuts: [ShortcutApp] {
         orderedShortcuts.isEmpty ? shortcuts : orderedShortcuts
@@ -72,6 +85,18 @@ struct ContentView: View {
                     } label: {
                         Label("アプリを追加...", systemImage: "plus.app")
                     }
+                    Divider()
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                            isDeleteMode.toggle()
+                        }
+                    } label: {
+                        Label(
+                            isDeleteMode ? "削除モードを終了" : "削除モード",
+                            systemImage: isDeleteMode ? "checkmark.circle" : "minus.circle"
+                        )
+                    }
+                    .disabled(displayedShortcuts.isEmpty)
                     Divider()
                     Toggle("ログイン時に自動起動", isOn: launchAtLoginBinding)
                     Divider()
@@ -137,27 +162,33 @@ struct ContentView: View {
                 ScrollView {
                     LazyVGrid(columns: appGridColumns, alignment: .center, spacing: 14) {
                         ForEach(displayedShortcuts) { shortcut in
-                            AppIconView(shortcut: shortcut)
+                            AppIconView(
+                                shortcut: shortcut,
+                                isDeleteMode: isDeleteMode,
+                                onDelete: {
+                                    deleteShortcut(shortcut)
+                                }
+                            )
                                 .opacity(draggingShortcut?.id == shortcut.id ? 0.45 : 1)
                                 .zIndex(draggingShortcut?.id == shortcut.id ? 1 : 0)
-                                .onDrag {
-                                    draggingShortcut = shortcut
-                                    return NSItemProvider(object: shortcut.id.uuidString as NSString)
-                                }
-                                .onDrop(
-                                    of: [UTType.text],
-                                    delegate: AppReorderDropDelegate(
-                                        targetShortcut: shortcut,
-                                        orderedShortcuts: $orderedShortcuts,
-                                        draggingShortcut: $draggingShortcut,
-                                        modelContext: modelContext
-                                    )
+                                .highPriorityGesture(
+                                    DragGesture(minimumDistance: 8, coordinateSpace: .named("appGrid"))
+                                        .onChanged { value in
+                                            guard !isDeleteMode else { return }
+                                            handleDragChanged(value, shortcut: shortcut)
+                                        }
+                                        .onEnded { _ in
+                                            guard !isDeleteMode else { return }
+                                            handleDragEnded()
+                                        }
                                 )
                         }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 18)
+                    .coordinateSpace(name: "appGrid")
+                    .animation(.spring(response: 0.32, dampingFraction: 0.82), value: displayedShortcuts.map(\.id))
                 }
                 .frame(height: appGridHeight)
                 .scrollDisabled(appGridHeight < 350)
@@ -173,6 +204,9 @@ struct ContentView: View {
         .onChange(of: shortcuts.map(\.id)) { _, _ in
             guard draggingShortcut == nil else { return }
             syncDisplayedShortcuts()
+            if shortcuts.isEmpty {
+                isDeleteMode = false
+            }
         }
         .background {
             VisualEffectView(material: .popover, blendingMode: .behindWindow)
@@ -222,6 +256,19 @@ struct ContentView: View {
         }
     }
 
+    private func deleteShortcut(_ shortcut: ShortcutApp) {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+            orderedShortcuts.removeAll { $0.id == shortcut.id }
+            modelContext.delete(shortcut)
+        }
+
+        saveOrder()
+
+        if orderedShortcuts.isEmpty {
+            isDeleteMode = false
+        }
+    }
+
     private func normalizeShortcutOrderIfNeeded() {
         let orderedShortcuts = shortcuts.enumerated()
         let needsNormalization = orderedShortcuts.contains { index, shortcut in
@@ -244,27 +291,21 @@ struct ContentView: View {
     private func syncDisplayedShortcuts() {
         orderedShortcuts = shortcuts
     }
-}
 
-struct AppReorderDropDelegate: DropDelegate {
-    let targetShortcut: ShortcutApp
-    @Binding var orderedShortcuts: [ShortcutApp]
-    @Binding var draggingShortcut: ShortcutApp?
-    let modelContext: ModelContext
+    private func handleDragChanged(_ value: DragGesture.Value, shortcut: ShortcutApp) {
+        if draggingShortcut == nil {
+            draggingShortcut = shortcut
+        }
 
-    func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [UTType.text])
-    }
-
-    func dropEntered(info: DropInfo) {
         guard
             let draggingShortcut,
-            draggingShortcut.id != targetShortcut.id,
-            let fromIndex = orderedShortcuts.firstIndex(where: { $0.id == draggingShortcut.id }),
-            let toIndex = orderedShortcuts.firstIndex(where: { $0.id == targetShortcut.id })
+            let fromIndex = orderedShortcuts.firstIndex(where: { $0.id == draggingShortcut.id })
         else {
             return
         }
+
+        let toIndex = insertionIndex(for: value.location)
+        guard fromIndex != toIndex else { return }
 
         withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
             let movedShortcut = orderedShortcuts.remove(at: fromIndex)
@@ -272,14 +313,9 @@ struct AppReorderDropDelegate: DropDelegate {
         }
     }
 
-    func performDrop(info: DropInfo) -> Bool {
+    private func handleDragEnded() {
         saveOrder()
         draggingShortcut = nil
-        return true
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
     }
 
     private func saveOrder() {
@@ -293,11 +329,30 @@ struct AppReorderDropDelegate: DropDelegate {
             print("Failed to save shortcut order: \(error)")
         }
     }
+
+    private func insertionIndex(for location: CGPoint) -> Int {
+        guard !orderedShortcuts.isEmpty else { return 0 }
+
+        let columnPitch = appGridCellWidth + appGridColumnSpacing
+        let rowPitch = appGridCellHeight + appGridRowSpacing
+        let x = max(0, location.x - appGridHorizontalPadding)
+        let y = max(0, location.y - appGridVerticalPadding)
+
+        let column = min(
+            appGridColumnCount - 1,
+            max(0, Int((x / columnPitch).rounded(.toNearestOrAwayFromZero)))
+        )
+        let row = max(0, Int((y / rowPitch).rounded(.toNearestOrAwayFromZero)))
+        let index = row * appGridColumnCount + column
+
+        return min(max(0, index), orderedShortcuts.count - 1)
+    }
 }
 
 struct AppIconView: View {
     let shortcut: ShortcutApp
-    @Environment(\.modelContext) private var modelContext
+    let isDeleteMode: Bool
+    let onDelete: () -> Void
     @State private var icon: NSImage?
     @State private var isHovering = false
     @State private var isPressed = false
@@ -320,14 +375,10 @@ struct AppIconView: View {
                         .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
                 }
                 
-                if isHovering {
-                    Button(action: {
-                        withAnimation(.spring()) {
-                            modelContext.delete(shortcut)
-                        }
-                    }) {
+                if isDeleteMode {
+                    Button(action: onDelete) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
+                            .font(.system(size: 15))
                             .foregroundStyle(.white, .red)
                             .shadow(radius: 2)
                     }
@@ -358,12 +409,13 @@ struct AppIconView: View {
         )
         .scaleEffect(isPressed ? 0.94 : (isHovering ? 1.03 : 1.0))
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovering)
+        .animation(.spring(response: 0.25, dampingFraction: 0.82), value: isDeleteMode)
         .animation(.easeInOut(duration: 0.1), value: isPressed)
         .onHover { hovering in
             isHovering = hovering
         }
-        .onTapGesture {
-            // Subtle click animation
+        .onTapGesture(count: 2) {
+            guard !isDeleteMode else { return }
             isPressed = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isPressed = false
