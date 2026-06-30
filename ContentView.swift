@@ -7,9 +7,12 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 import ServiceManagement
+import Combine
+import AppKit
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openWindow) private var openWindow
     @Query(sort: [
         SortDescriptor(\ShortcutApp.sortIndex),
         SortDescriptor(\ShortcutApp.name)
@@ -43,9 +46,17 @@ struct ContentView: View {
     @State private var draggingShortcut: ShortcutApp?
     @State private var orderedShortcuts: [ShortcutApp] = []
     @State private var isDeleteMode = false
+    @AppStorage("liquidTheme") private var liquidTheme: String = "system"
+    @ObservedObject private var hotkeyManager = GlobalHotkeyManager.shared
 
     private var displayedShortcuts: [ShortcutApp] {
         orderedShortcuts.isEmpty ? shortcuts : orderedShortcuts
+    }
+    
+    private var activeColorScheme: ColorScheme {
+        if liquidTheme == "light" { return .light }
+        if liquidTheme == "dark" { return .dark }
+        return colorScheme
     }
 
     private var launchAtLoginBinding: Binding<Bool> {
@@ -72,31 +83,54 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
+            HStack(spacing: 6) {
                 Text("MenuDock")
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
                     .foregroundStyle(.primary)
                 
                 Spacer()
                 
-                Menu {
+                // Actions Group
+                ControlGroup {
                     Button {
                         addApp()
                     } label: {
-                        Label("アプリを追加...", systemImage: "plus.app")
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 24, height: 26)
                     }
-                    Divider()
+                    .help("アプリを追加")
+                    
                     Button {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
                             isDeleteMode.toggle()
                         }
                     } label: {
-                        Label(
-                            isDeleteMode ? "削除モードを終了" : "削除モード",
-                            systemImage: isDeleteMode ? "checkmark.circle" : "minus.circle"
-                        )
+                        Image(systemName: isDeleteMode ? "checkmark" : "minus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 24, height: 26)
                     }
                     .disabled(displayedShortcuts.isEmpty)
+                    .help(isDeleteMode ? "削除モードを完了" : "アプリを削除")
+                }
+                .controlSize(.small)
+                .tint(isDeleteMode ? .blue : .secondary)
+                
+                // Settings Menu
+                Menu {
+                    Picker(selection: $liquidTheme) {
+                        Text("システム設定に従う").tag("system")
+                        Text("ダーク (ディープ)").tag("dark")
+                        Text("ライト (パステル)").tag("light")
+                    } label: {
+                        Label("テーマ設定", systemImage: "paintpalette")
+                    }
+                    .pickerStyle(.menu)
+                    Button {
+                        openWindow(id: "about")
+                    } label: {
+                        Label("設定と使い方", systemImage: "gearshape.fill")
+                    }
                     Divider()
                     Toggle("ログイン時に自動起動", isOn: launchAtLoginBinding)
                     Divider()
@@ -113,9 +147,10 @@ struct ContentView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle(radius: 14))
+                .buttonBorderShape(.roundedRectangle(radius: 10))
                 .controlSize(.small)
                 .tint(.secondary)
+                .help("設定")
             }
             .padding(.horizontal, 18)
             .padding(.top, 16)
@@ -126,7 +161,7 @@ struct ContentView: View {
                 VStack(spacing: 16) {
                     ZStack {
                         Circle()
-                            .fill(Color.white.opacity(colorScheme == .dark ? 0.1 : 0.2))
+                            .fill(Color.white.opacity(activeColorScheme == .dark ? 0.1 : 0.2))
                             .frame(width: 80, height: 80)
                         
                         Image(systemName: "plus.square.dashed")
@@ -152,7 +187,6 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.roundedRectangle(radius: 12))
                     .controlSize(.regular)
-                    .padding(.top, 4)
                 }
                 .padding(.horizontal, 28)
                 .padding(.top, 18)
@@ -184,7 +218,6 @@ struct ContentView: View {
                                 )
                         }
                     }
-                    .frame(maxWidth: .infinity)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 18)
                     .coordinateSpace(name: "appGrid")
@@ -195,6 +228,7 @@ struct ContentView: View {
             }
         }
         .frame(width: 320)
+        .environment(\.colorScheme, activeColorScheme)
         .background(WindowBackgroundConfigurator())
         .onAppear {
             isLaunchAtLoginEnabled = SMAppService.mainApp.status == .enabled
@@ -209,6 +243,13 @@ struct ContentView: View {
             }
         }
         .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { AppDelegate.shared?.updatePanelSize(proxy.size) }
+                    .onChange(of: proxy.size) { newSize in
+                        AppDelegate.shared?.updatePanelSize(newSize)
+                    }
+            }
             ZStack {
                 // 1. Base Real-time Environmental Refraction (Simulated with saturation boost)
                 VisualEffectView(material: .sidebar, blendingMode: .behindWindow)
@@ -216,15 +257,15 @@ struct ContentView: View {
                     .saturation(1.5) // Saturation boost for Liquid Glass
 
                 // 2. Adaptive physics-based meta-substance (Fluid motion)
-                LiquidBlobBackground()
+                LiquidBlobBackground(isLightMode: activeColorScheme == .light)
                     .clipShape(RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
-                    .opacity(0.8)
-                    .blendMode(colorScheme == .dark ? .plusLighter : .multiply)
+                    .opacity(activeColorScheme == .light ? 0.85 : 0.8)
+                    .blendMode(activeColorScheme == .light ? .normal : .plusLighter)
 
                 // 3. Thick Glass Frosting with Depth
                 Rectangle()
                     .fill(.ultraThinMaterial)
-                    .opacity(colorScheme == .dark ? 0.85 : 0.65)
+                    .opacity(activeColorScheme == .dark ? 0.85 : 0.65)
                     .clipShape(RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
 
                 // 4. Inner Bevel & Refraction (Thickness)
@@ -232,9 +273,9 @@ struct ContentView: View {
                     .strokeBorder(
                         LinearGradient(
                             colors: [
-                                Color.black.opacity(colorScheme == .dark ? 0.6 : 0.1),
+                                Color.black.opacity(activeColorScheme == .dark ? 0.6 : 0.1),
                                 Color.clear,
-                                Color.white.opacity(colorScheme == .dark ? 0.2 : 0.5)
+                                Color.white.opacity(activeColorScheme == .dark ? 0.2 : 0.5)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -247,9 +288,9 @@ struct ContentView: View {
                     .strokeBorder(
                         LinearGradient(
                             colors: [
-                                Color.white.opacity(colorScheme == .dark ? 0.9 : 0.95),
-                                Color.white.opacity(colorScheme == .dark ? 0.1 : 0.2),
-                                Color.white.opacity(colorScheme == .dark ? 0.3 : 0.6)
+                                Color.white.opacity(activeColorScheme == .dark ? 0.9 : 0.95),
+                                Color.white.opacity(activeColorScheme == .dark ? 0.1 : 0.2),
+                                Color.white.opacity(activeColorScheme == .dark ? 0.3 : 0.6)
                             ],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
@@ -257,7 +298,8 @@ struct ContentView: View {
                         lineWidth: 1
                     )
             }
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.6 : 0.25), radius: 30, x: 0, y: 20)
+            .environment(\.colorScheme, activeColorScheme)
+            .shadow(color: .black.opacity(activeColorScheme == .dark ? 0.5 : 0.2), radius: 24, x: 0, y: 12)
             .ignoresSafeArea()
         }
     }
@@ -398,6 +440,7 @@ struct AppIconView: View {
     @State private var icon: NSImage?
     @State private var isHovering = false
     @State private var isPressed = false
+    @State private var jigglePhase: Bool = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -485,13 +528,24 @@ struct AppIconView: View {
             .shadow(color: isHovering ? .black.opacity(0.25) : .clear, radius: isHovering ? 10 : 0, x: 0, y: isHovering ? 5 : 0)
         )
         .scaleEffect(isPressed ? 0.94 : (isHovering ? 1.03 : 1.0))
+        .rotationEffect(.degrees(isDeleteMode ? (jigglePhase ? -2.5 : 2.5) : 0))
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovering)
         .animation(.spring(response: 0.25, dampingFraction: 0.82), value: isDeleteMode)
         .animation(.easeInOut(duration: 0.1), value: isPressed)
+        .onChange(of: isDeleteMode) { newValue in
+            if newValue {
+                let delay = Double.random(in: 0...0.1)
+                withAnimation(.easeInOut(duration: 0.13).repeatForever(autoreverses: true).delay(delay)) {
+                    jigglePhase.toggle()
+                }
+            } else {
+                withAnimation { jigglePhase = false }
+            }
+        }
         .onHover { hovering in
             isHovering = hovering
         }
-        .onTapGesture(count: 2) {
+        .onTapGesture {
             guard !isDeleteMode else { return }
             isPressed = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -500,6 +554,12 @@ struct AppIconView: View {
             }
         }
         .onAppear {
+            if isDeleteMode {
+                let delay = Double.random(in: 0...0.1)
+                withAnimation(.easeInOut(duration: 0.13).repeatForever(autoreverses: true).delay(delay)) {
+                    jigglePhase.toggle()
+                }
+            }
             loadIcon()
         }
     }
@@ -516,6 +576,7 @@ struct AppIconView: View {
     private func launchApp() {
         let url = URL(fileURLWithPath: shortcut.path)
         NSWorkspace.shared.open(url)
+        AppDelegate.shared?.panel.orderOut(nil)
     }
 }
 
@@ -526,6 +587,7 @@ struct VisualEffectView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
+        view.identifier = NSUserInterfaceItemIdentifier("CustomLiquidGlass")
         view.blendingMode = blendingMode
         view.state = .active
         view.material = material
@@ -538,6 +600,7 @@ struct VisualEffectView: NSViewRepresentable {
         nsView.blendingMode = blendingMode
         nsView.state = .active
         nsView.isEmphasized = false
+        nsView.appearance = context.environment.colorScheme == .dark ? NSAppearance(named: .vibrantDark) : NSAppearance(named: .vibrantLight)
     }
 }
 
@@ -566,7 +629,7 @@ class ClearBackgroundView: NSView {
     }
     
     private func hideSystemBackgrounds(in view: NSView) {
-        if let vev = view as? NSVisualEffectView {
+        if let vev = view as? NSVisualEffectView, vev.identifier?.rawValue != "CustomLiquidGlass" {
             vev.isHidden = true
             vev.alphaValue = 0
             vev.state = .inactive
@@ -591,15 +654,18 @@ struct WindowBackgroundConfigurator: NSViewRepresentable {
 
 struct LiquidBlobBackground: View {
     @State private var animate = false
+    var isLightMode: Bool
     
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                // Purple/Pink blob
+                // Blob 1
                 Ellipse()
                     .fill(
                         LinearGradient(
-                            colors: [Color.purple.opacity(0.8), Color.indigo.opacity(0.8)],
+                            colors: isLightMode 
+                                ? [Color.pink.opacity(0.4), Color.blue.opacity(0.3)]
+                                : [Color.purple.opacity(0.8), Color.indigo.opacity(0.8)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -609,11 +675,13 @@ struct LiquidBlobBackground: View {
                     .offset(x: animate ? -proxy.size.width * 0.1 : proxy.size.width * 0.3,
                             y: animate ? -proxy.size.height * 0.1 : proxy.size.height * 0.4)
                 
-                // Cyan/Blue blob
+                // Blob 2
                 Ellipse()
                     .fill(
                         LinearGradient(
-                            colors: [Color.cyan.opacity(0.7), Color.blue.opacity(0.7)],
+                            colors: isLightMode 
+                                ? [Color.cyan.opacity(0.4), Color.mint.opacity(0.5)]
+                                : [Color.cyan.opacity(0.7), Color.blue.opacity(0.7)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -623,11 +691,13 @@ struct LiquidBlobBackground: View {
                     .offset(x: animate ? proxy.size.width * 0.4 : -proxy.size.width * 0.2,
                             y: animate ? proxy.size.height * 0.4 : -proxy.size.height * 0.1)
                 
-                // Orange/Pink blob
+                // Blob 3
                 Ellipse()
                     .fill(
                         LinearGradient(
-                            colors: [Color.pink.opacity(0.6), Color.orange.opacity(0.5)],
+                            colors: isLightMode 
+                                ? [Color.purple.opacity(0.3), Color.pink.opacity(0.4)]
+                                : [Color.pink.opacity(0.6), Color.orange.opacity(0.5)],
                             startPoint: .bottomLeading,
                             endPoint: .topTrailing
                         )
@@ -642,6 +712,166 @@ struct LiquidBlobBackground: View {
             withAnimation(.easeInOut(duration: 8.0).repeatForever(autoreverses: true)) {
                 animate = true
             }
+        }
+    }
+}
+
+struct AboutView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack(spacing: 24) {
+            // App Icon & Name
+            VStack(spacing: 12) {
+                Image(systemName: "square.grid.2x2.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(
+                        LinearGradient(colors: [.purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
+                    .shadow(color: .purple.opacity(0.3), radius: 8, x: 0, y: 4)
+                
+                VStack(spacing: 4) {
+                    Text("MenuDock")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                    Text("バージョン 1.0.0")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 16)
+            
+            // Description
+            Text("メニューバーからお気に入りのアプリに瞬時にアクセスできる、ランチャーアプリです。")
+                .font(.system(size: 13))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            
+            // Shortcuts
+            VStack(alignment: .leading, spacing: 16) {
+                Text("ショートカット設定")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .padding(.bottom, -4)
+                
+                HStack {
+                    Text("MenuDockを呼び出す:")
+                        .font(.system(size: 13))
+                    Spacer()
+                    ShortcutRecorder()
+                }
+            }
+            .padding(16)
+            .background(Color(nsColor: .windowBackgroundColor).opacity(0.5))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
+            )
+            .padding(.horizontal, 24)
+            
+            // Usage
+            VStack(alignment: .leading, spacing: 16) {
+                Text("使い方")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .padding(.bottom, -4)
+                
+                UsageRow(icon: "plus.app", title: "アプリの追加", desc: "メニューの「アプリを追加...」からお好きなアプリを登録できます。")
+                UsageRow(icon: "hand.draw", title: "起動と並び替え", desc: "アイコンをクリックで起動します。ドラッグ＆ドロップで並び替えも簡単です。")
+                UsageRow(icon: "minus.circle", title: "アプリの削除", desc: "メニューの「削除モード」をオンにして、アイコン右上の×ボタンで外せます。")
+                UsageRow(icon: "paintpalette", title: "テーマの変更", desc: "設定メニューから好みのLiquid Glassテーマ（ダーク/ライト）に切り替えられます。")
+            }
+            .padding(16)
+            .background(Color(nsColor: .windowBackgroundColor).opacity(0.5))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
+            )
+            .padding(.horizontal, 24)
+            
+            Button("閉じる") {
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .padding(.bottom, 20)
+        }
+        .frame(width: 420)
+        .fixedSize()
+        .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
+    }
+}
+
+struct UsageRow: View {
+    let icon: String
+    let title: String
+    let desc: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(.tint)
+                .frame(width: 24, alignment: .center)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(desc)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+struct ShortcutRecorder: View {
+    @ObservedObject var manager = GlobalHotkeyManager.shared
+    @State private var isRecording = false
+    @State private var localMonitor: Any?
+    
+    var body: some View {
+        Button {
+            isRecording = true
+            startRecording()
+        } label: {
+            Text(isRecording ? "キーを入力..." : manager.shortcutString)
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .frame(minWidth: 100)
+                .padding(.vertical, 2)
+                .padding(.horizontal, 4)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(isRecording ? .blue : Color.secondary.opacity(0.3))
+        .foregroundStyle(isRecording ? .white : .primary)
+        .onChange(of: isRecording) { recording in
+            if !recording { stopRecording() }
+        }
+        .onDisappear {
+            stopRecording()
+        }
+    }
+    
+    private func startRecording() {
+        stopRecording()
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Esc cancels
+            if event.keyCode == 53 {
+                isRecording = false
+                stopRecording()
+                return nil
+            }
+            manager.setCustomHotkey(keyCode: event.keyCode, cocoaModifiers: event.modifierFlags)
+            isRecording = false
+            stopRecording()
+            return nil
+        }
+    }
+    
+    private func stopRecording() {
+        if let monitor = localMonitor {
+            NSEvent.removeMonitor(monitor)
+            localMonitor = nil
         }
     }
 }
