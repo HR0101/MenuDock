@@ -126,7 +126,7 @@ struct ContentView: View {
                 VStack(spacing: 16) {
                     ZStack {
                         Circle()
-                            .fill(.regularMaterial)
+                            .fill(Color.white.opacity(colorScheme == .dark ? 0.1 : 0.2))
                             .frame(width: 80, height: 80)
                         
                         Image(systemName: "plus.square.dashed")
@@ -411,7 +411,7 @@ struct AppIconView: View {
                         .shadow(color: Color.black.opacity(0.15), radius: 4, x: 0, y: 2)
                 } else {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(.regularMaterial)
+                        .fill(Color.white.opacity(colorScheme == .dark ? 0.1 : 0.2))
                         .frame(width: 48, height: 48)
                         .overlay(Image(systemName: "app").foregroundStyle(.secondary))
                         .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
@@ -442,16 +442,17 @@ struct AppIconView: View {
         .background(
             ZStack {
                 if isHovering {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    // Base Liquid Glass for App Icon
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(.ultraThinMaterial)
-                        .opacity(colorScheme == .dark ? 0.9 : 0.7)
+                        .opacity(colorScheme == .dark ? 0.6 : 0.5)
                     
                     // Inner refraction
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.white.opacity(colorScheme == .dark ? 0.15 : 0.3),
+                                    Color.white.opacity(colorScheme == .dark ? 0.25 : 0.4),
                                     Color.clear
                                 ],
                                 startPoint: .topLeading,
@@ -460,23 +461,28 @@ struct AppIconView: View {
                         )
                         .blendMode(.overlay)
                     
-                    // Specular Highlight
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    // Specular Highlight (Stronger on hover)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .strokeBorder(
                             LinearGradient(
                                 colors: [
-                                    Color.white.opacity(colorScheme == .dark ? 0.8 : 0.9),
+                                    Color.white.opacity(colorScheme == .dark ? 0.9 : 0.95),
                                     Color.white.opacity(0.0),
-                                    Color.white.opacity(colorScheme == .dark ? 0.2 : 0.4)
+                                    Color.white.opacity(colorScheme == .dark ? 0.3 : 0.5)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
-                            lineWidth: 1
+                            lineWidth: 1.5
                         )
+                    
+                    // Subtle colored glow behind the app icon to blend with the Liquid background
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white.opacity(colorScheme == .dark ? 0.1 : 0.2))
+                        .blur(radius: 10)
                 }
             }
-            .shadow(color: isHovering ? .black.opacity(0.2) : .clear, radius: 8, x: 0, y: 4)
+            .shadow(color: isHovering ? .black.opacity(0.25) : .clear, radius: isHovering ? 10 : 0, x: 0, y: isHovering ? 5 : 0)
         )
         .scaleEffect(isPressed ? 0.94 : (isHovering ? 1.03 : 1.0))
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovering)
@@ -535,27 +541,51 @@ struct VisualEffectView: NSViewRepresentable {
     }
 }
 
+class ClearBackgroundView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        clearSystemBackground()
+    }
+    
+    override func layout() {
+        super.layout()
+        clearSystemBackground()
+    }
+    
+    private func clearSystemBackground() {
+        guard let window = self.window else { return }
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
+        
+        if let contentView = window.contentView?.superview {
+            hideSystemBackgrounds(in: contentView)
+        }
+    }
+    
+    private func hideSystemBackgrounds(in view: NSView) {
+        if let vev = view as? NSVisualEffectView {
+            vev.isHidden = true
+            vev.alphaValue = 0
+            vev.state = .inactive
+        }
+        for subview in view.subviews {
+            hideSystemBackgrounds(in: subview)
+        }
+    }
+}
+
 struct WindowBackgroundConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            configureWindow(from: view)
-        }
-        return view
+        return ClearBackgroundView()
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            configureWindow(from: nsView)
+        if let clearView = nsView as? ClearBackgroundView {
+            clearView.needsLayout = true
         }
-    }
-
-    private func configureWindow(from view: NSView) {
-        guard let window = view.window else { return }
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.contentView?.wantsLayer = true
-        window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
     }
 }
 
