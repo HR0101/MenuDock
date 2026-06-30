@@ -545,14 +545,18 @@ struct AppIconView: View {
         .onHover { hovering in
             isHovering = hovering
         }
-        .onTapGesture {
-            guard !isDeleteMode else { return }
-            isPressed = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isPressed = false
-                launchApp()
-            }
-        }
+        .gesture(
+            TapGesture(count: 2)
+                .onEnded {
+                    handleLaunchTap(openingNewWindow: true)
+                }
+                .exclusively(before:
+                    TapGesture(count: 1)
+                        .onEnded {
+                            handleLaunchTap(openingNewWindow: false)
+                        }
+                )
+        )
         .onAppear {
             if isDeleteMode {
                 let delay = Double.random(in: 0...0.1)
@@ -573,9 +577,29 @@ struct AppIconView: View {
         }
     }
     
-    private func launchApp() {
+    private func handleLaunchTap(openingNewWindow: Bool) {
+        guard !isDeleteMode else { return }
+        isPressed = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isPressed = false
+            launchApp(openingNewWindow: openingNewWindow)
+        }
+    }
+
+    private func launchApp(openingNewWindow: Bool = false) {
         let url = URL(fileURLWithPath: shortcut.path)
-        NSWorkspace.shared.open(url)
+        if openingNewWindow {
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            configuration.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
+                if let error {
+                    print("Failed to launch new application instance: \(error)")
+                }
+            }
+        } else {
+            NSWorkspace.shared.open(url)
+        }
         AppDelegate.shared?.panel.orderOut(nil)
     }
 }
