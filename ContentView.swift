@@ -532,39 +532,18 @@ struct AppIconView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovering)
         .animation(.spring(response: 0.25, dampingFraction: 0.82), value: isDeleteMode)
         .animation(.easeInOut(duration: 0.1), value: isPressed)
-        .onChange(of: isDeleteMode) { newValue in
-            if newValue {
-                let delay = Double.random(in: 0...0.1)
-                withAnimation(.easeInOut(duration: 0.13).repeatForever(autoreverses: true).delay(delay)) {
-                    jigglePhase.toggle()
-                }
-            } else {
-                withAnimation { jigglePhase = false }
-            }
+        .onChange(of: isDeleteMode) { _, newValue in
+            updateJiggleAnimation(isActive: newValue)
         }
         .onHover { hovering in
             isHovering = hovering
         }
-        .gesture(
-            TapGesture(count: 2)
-                .onEnded {
-                    handleLaunchTap(openingNewWindow: true)
-                }
-                .exclusively(before:
-                    TapGesture(count: 1)
-                        .onEnded {
-                            handleLaunchTap(openingNewWindow: false)
-                        }
-                )
-        )
+        .modifier(AppLaunchGestureModifier(isEnabled: !isDeleteMode) { openingNewWindow in
+            handleLaunchTap(openingNewWindow: openingNewWindow)
+        })
         .onAppear {
-            if isDeleteMode {
-                let delay = Double.random(in: 0...0.1)
-                withAnimation(.easeInOut(duration: 0.13).repeatForever(autoreverses: true).delay(delay)) {
-                    jigglePhase.toggle()
-                }
-            }
             loadIcon()
+            updateJiggleAnimation(isActive: isDeleteMode)
         }
     }
     
@@ -573,6 +552,20 @@ struct AppIconView: View {
             let img = NSWorkspace.shared.icon(forFile: shortcut.path)
             DispatchQueue.main.async {
                 self.icon = img
+            }
+        }
+    }
+
+    private func updateJiggleAnimation(isActive: Bool) {
+        if isActive {
+            jigglePhase = false
+            let delay = Double.random(in: 0...0.1)
+            withAnimation(.easeInOut(duration: 0.13).repeatForever(autoreverses: true).delay(delay)) {
+                jigglePhase = true
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.12)) {
+                jigglePhase = false
             }
         }
     }
@@ -601,6 +594,27 @@ struct AppIconView: View {
             NSWorkspace.shared.open(url)
         }
         AppDelegate.shared?.panel.orderOut(nil)
+    }
+}
+
+private struct AppLaunchGestureModifier: ViewModifier {
+    let isEnabled: Bool
+    let onLaunch: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content.gesture(
+            TapGesture(count: 2)
+                .onEnded {
+                    onLaunch(true)
+                }
+                .exclusively(before:
+                    TapGesture(count: 1)
+                        .onEnded {
+                            onLaunch(false)
+                        }
+                ),
+            including: isEnabled ? .all : .none
+        )
     }
 }
 
@@ -742,6 +756,17 @@ struct LiquidBlobBackground: View {
 
 struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
+
+    private var versionText: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+
+        if let build, !build.isEmpty {
+            return "バージョン \(version) (\(build))"
+        }
+
+        return "バージョン \(version)"
+    }
     
     var body: some View {
         VStack(spacing: 24) {
@@ -757,7 +782,7 @@ struct AboutView: View {
                 VStack(spacing: 4) {
                     Text("MenuDock")
                         .font(.system(size: 24, weight: .bold, design: .rounded))
-                    Text("バージョン 1.0.0")
+                    Text(versionText)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
