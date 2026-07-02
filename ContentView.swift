@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 import ServiceManagement
 import Combine
 import AppKit
+import ApplicationServices
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -582,18 +583,140 @@ struct AppIconView: View {
     private func launchApp(openingNewWindow: Bool = false) {
         let url = URL(fileURLWithPath: shortcut.path)
         if openingNewWindow {
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = true
-            configuration.createsNewApplicationInstance = true
-            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
-                if let error {
-                    print("Failed to launch new application instance: \(error)")
-                }
-            }
+            openNewWindow(for: url)
         } else {
             NSWorkspace.shared.open(url)
         }
         AppDelegate.shared?.panel.orderOut(nil)
+    }
+
+    private func openNewWindow(for url: URL) {
+        if let runningApp = runningApplication(for: url) {
+            runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            pressNewWindowMenuItem(to: runningApp)
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
+            if let error {
+                print("Failed to launch application: \(error)")
+                return
+            }
+
+            guard let app else { return }
+            app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        }
+    }
+
+    private func runningApplication(for url: URL) -> NSRunningApplication? {
+        if
+            let bundleIdentifier = Bundle(url: url)?.bundleIdentifier,
+            let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first
+        {
+            return app
+        }
+
+        return NSWorkspace.shared.runningApplications.first { app in
+            app.bundleURL?.standardizedFileURL == url.standardizedFileURL
+        }
+    }
+
+    private func pressNewWindowMenuItem(to app: NSRunningApplication) {
+        guard isAccessibilityTrusted() else {
+            print("Accessibility permission is required to open a new window in another app.")
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if !pressMatchingNewWindowMenuItem(in: app) {
+                print("No New Window menu item was found for \(app.localizedName ?? "the selected app").")
+            }
+        }
+    }
+
+    private func pressMatchingNewWindowMenuItem(in app: NSRunningApplication) -> Bool {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        guard let menuBarAttribute = axAttribute(kAXMenuBarAttribute, of: appElement) else {
+            return false
+        }
+
+        let menuBar = menuBarAttribute as! AXUIElement
+        return pressMatchingNewWindowMenuItem(in: menuBar, depth: 0)
+    }
+
+    private func pressMatchingNewWindowMenuItem(in element: AXUIElement, depth: Int) -> Bool {
+        guard depth < 6 else { return false }
+
+        if
+            let title = axAttribute(kAXTitleAttribute, of: element) as? String,
+            isNewWindowMenuTitle(title),
+            isAXElementEnabled(element)
+        {
+            return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+        }
+
+        for child in axChildren(of: element) {
+            if pressMatchingNewWindowMenuItem(in: child, depth: depth + 1) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func isNewWindowMenuTitle(_ title: String) -> Bool {
+        let normalized = title
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "...", with: "")
+            .replacingOccurrences(of: "…", with: "")
+
+        let excludedTerms = ["private", "incognito", "プライベート", "シークレット"]
+        if excludedTerms.contains(where: normalized.contains) {
+            return false
+        }
+
+        let exactMatches = [
+            "newwindow",
+            "新規ウインドウ",
+            "新規ウィンドウ",
+            "新しいウインドウ",
+            "新しいウィンドウ"
+        ]
+        if exactMatches.contains(normalized) {
+            return true
+        }
+
+        let hasEnglishNewWindow = normalized.contains("new") && normalized.contains("window")
+        let hasJapaneseNewWindow = (normalized.contains("新規") || normalized.contains("新しい"))
+            && (normalized.contains("ウインドウ") || normalized.contains("ウィンドウ"))
+
+        return hasEnglishNewWindow || hasJapaneseNewWindow
+    }
+
+    private func isAXElementEnabled(_ element: AXUIElement) -> Bool {
+        (axAttribute(kAXEnabledAttribute, of: element) as? Bool) ?? true
+    }
+
+    private func axChildren(of element: AXUIElement) -> [AXUIElement] {
+        (axAttribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []
+    }
+
+    private func axAttribute(_ attribute: String, of element: AXUIElement) -> AnyObject? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success else { return nil }
+        return value
+    }
+
+    private func isAccessibilityTrusted() -> Bool {
+        let options = [
+            kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true
+        ] as CFDictionary
+
+        return AXIsProcessTrustedWithOptions(options)
     }
 }
 
@@ -824,7 +947,8 @@ struct AboutView: View {
                     .padding(.bottom, -4)
                 
                 UsageRow(icon: "plus.app", title: "アプリの追加", desc: "メニューの「アプリを追加...」からお好きなアプリを登録できます。")
-                UsageRow(icon: "hand.draw", title: "起動と並び替え", desc: "アイコンをクリックで起動します。ドラッグ＆ドロップで並び替えも簡単です。")
+                UsageRow(icon: "cursorarrow.click.2", title: "アプリを開く", desc: "アイコンをクリックで通常起動、ダブルクリックでアプリの新規ウインドウメニューを実行します。起動済みアプリで使う場合はアクセシビリティ許可が必要です。")
+                UsageRow(icon: "hand.draw", title: "並び替え", desc: "アイコンをドラッグ＆ドロップして、好きな順番に並び替えられます。")
                 UsageRow(icon: "minus.circle", title: "アプリの削除", desc: "メニューの「削除モード」をオンにして、アイコン右上の×ボタンで外せます。")
                 UsageRow(icon: "paintpalette", title: "テーマの変更", desc: "設定メニューから好みのLiquid Glassテーマ（ダーク/ライト）に切り替えられます。")
             }

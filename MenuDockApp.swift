@@ -31,6 +31,7 @@ struct MenuDockApp: App {
             AboutView()
         }
         .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
         
         Settings {
             EmptyView()
